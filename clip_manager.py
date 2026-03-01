@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import glob
 import logging
 import os
 import shutil
 import sys
+from typing import TYPE_CHECKING
 
 # Enable OpenEXR support in OpenCV — needed for EXR I/O throughout the pipeline.
 # Must be set before any cv2.imread/imwrite calls on .exr files.
@@ -10,6 +13,10 @@ os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
 import cv2
 import numpy as np
+
+if TYPE_CHECKING:
+    from CorridorKeyModule.inference_engine import CorridorKeyEngine
+    from gvm_core import GVMProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -26,15 +33,15 @@ LINUX_MOUNT_ROOT = "/mnt/ssd-storage"
 
 
 # --- Helpers ---
-def is_image_file(filename):
+def is_image_file(filename: str) -> bool:
     return filename.lower().endswith((".png", ".jpg", ".jpeg", ".exr", ".tif", ".tiff", ".bmp"))
 
 
-def is_video_file(filename):
+def is_video_file(filename: str) -> bool:
     return filename.lower().endswith((".mp4", ".mov", ".avi", ".mkv"))
 
 
-def map_path(win_path):
+def map_path(win_path: str) -> str:
     r"""
     Converts a Windows path (example: V:\Projects\Shot1) to the local Linux path.
     """
@@ -57,13 +64,13 @@ def map_path(win_path):
 
 # --- Classes ---
 class ClipAsset:
-    def __init__(self, path, asset_type):
+    def __init__(self, path: str, asset_type: str) -> None:
         self.path = path
         self.type = asset_type  # 'sequence' or 'video'
         self.frame_count = 0
         self._calculate_length()
 
-    def _calculate_length(self):
+    def _calculate_length(self) -> None:
         if self.type == "sequence":
             files = sorted([f for f in os.listdir(self.path) if is_image_file(f)])
             self.frame_count = len(files)
@@ -77,13 +84,13 @@ class ClipAsset:
 
 
 class ClipEntry:
-    def __init__(self, name, root_path):
+    def __init__(self, name: str, root_path: str) -> None:
         self.name = name
         self.root_path = root_path
-        self.input_asset = None
-        self.alpha_asset = None
+        self.input_asset: ClipAsset | None = None
+        self.alpha_asset: ClipAsset | None = None
 
-    def find_assets(self):
+    def find_assets(self) -> None:
         # 1. Look for Input
         input_dir = os.path.join(self.root_path, "Input")
 
@@ -141,7 +148,7 @@ class ClipEntry:
             else:
                 self.alpha_asset = None  # Missing, needs generation
 
-    def validate_pair(self):
+    def validate_pair(self) -> None:
         if self.input_asset and self.alpha_asset:
             if self.input_asset.frame_count != self.alpha_asset.frame_count:
                 raise ValueError(
@@ -153,7 +160,7 @@ class ClipEntry:
 # --- Logic ---
 
 
-def get_gvm_processor(device="cuda"):
+def get_gvm_processor(device: str = "cuda") -> GVMProcessor:
     try:
         from gvm_core import GVMProcessor
 
@@ -166,7 +173,7 @@ def get_gvm_processor(device="cuda"):
         raise RuntimeError(f"Failed to initialize GVM Processor: {e}") from e
 
 
-def get_corridor_key_engine(device="cuda"):
+def get_corridor_key_engine(device: str = "cuda") -> CorridorKeyEngine:
     try:
         from CorridorKeyModule.inference_engine import CorridorKeyEngine
 
@@ -190,7 +197,7 @@ def get_corridor_key_engine(device="cuda"):
         raise RuntimeError(f"Failed to initialize CorridorKey Engine: {e}") from e
 
 
-def generate_alphas(clips):
+def generate_alphas(clips: list[ClipEntry]) -> None:
     clips_to_process = [c for c in clips if c.alpha_asset is None]
 
     if not clips_to_process:
@@ -269,7 +276,7 @@ def generate_alphas(clips):
             traceback.print_exc()
 
 
-def run_videomama(clips, chunk_size=50):
+def run_videomama(clips: list[ClipEntry], chunk_size: int = 50) -> None:
     """
     Runs VideoMaMa on clips that have VideoMamaMaskHint but NO AlphaHint.
     """
@@ -513,7 +520,7 @@ def run_videomama(clips, chunk_size=50):
             traceback.print_exc()
 
 
-def run_inference(clips):
+def run_inference(clips: list[ClipEntry]) -> None:
     ready_clips = [c for c in clips if c.input_asset and c.alpha_asset]
 
     if not ready_clips:
@@ -745,7 +752,7 @@ def run_inference(clips):
         logger.info(f"Clip {clip.name} Complete.")
 
 
-def organize_target(target_dir):
+def organize_target(target_dir: str) -> None:
     """
     Organizes a specific folder.
     1. If loose video -> Rename to Input.ext (if safe).
@@ -808,7 +815,7 @@ def organize_target(target_dir):
             #     f.write("Place your image sequence here.")
 
 
-def organize_clips(clips_dir):
+def organize_clips(clips_dir: str) -> None:
     """
     Legacy wrapper for backward compatibility with 'ClipsForInference' folder.
     Organizes all subfolders in the given directory using the new logic.
@@ -851,7 +858,7 @@ def organize_clips(clips_dir):
             organize_target(full_path)
 
 
-def scan_clips():
+def scan_clips() -> list[ClipEntry]:
     if not os.path.exists(CLIPS_DIR):
         os.makedirs(CLIPS_DIR, exist_ok=True)
         return []

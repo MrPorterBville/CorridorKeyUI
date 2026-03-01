@@ -11,6 +11,8 @@ Usage (via launcher scripts):
     uv run python corridorkey_cli.py --action list
 """
 
+from __future__ import annotations
+
 import argparse
 import glob
 import logging
@@ -34,7 +36,7 @@ from clip_manager import (
 logger = logging.getLogger(__name__)
 
 
-def _configure_environment():
+def _configure_environment() -> None:
     """Set up logging and warnings for interactive CLI use.
 
     This is called once at startup when running from the command line.
@@ -44,7 +46,7 @@ def _configure_environment():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
-def interactive_wizard(win_path):
+def interactive_wizard(win_path: str) -> None:
     print("\n" + "=" * 60)
     print(" CORRIDOR KEY - SMART WIZARD")
     print("=" * 60)
@@ -274,7 +276,7 @@ def interactive_wizard(win_path):
     print("\nWizard Complete. Goodbye!")
 
 
-def main():
+def main() -> None:
     _configure_environment()
 
     parser = argparse.ArgumentParser(description="CorridorKey Clip Manager")

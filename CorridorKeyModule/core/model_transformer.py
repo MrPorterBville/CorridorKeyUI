@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import timm
 import torch
 import torch.nn as nn
@@ -9,16 +11,18 @@ class MLP(nn.Module):
     Linear Embedding: C_in -> C_out
     """
 
-    def __init__(self, input_dim=2048, embed_dim=768):
+    def __init__(self, input_dim: int = 2048, embed_dim: int = 768) -> None:
         super().__init__()
         self.proj = nn.Linear(input_dim, embed_dim)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.proj(x)
 
 
 class DecoderHead(nn.Module):
-    def __init__(self, feature_channels=None, embedding_dim=256, output_dim=1):
+    def __init__(
+        self, feature_channels: list[int] | None = None, embedding_dim: int = 256, output_dim: int = 1
+    ) -> None:
         super().__init__()
         if feature_channels is None:
             feature_channels = [112, 224, 448, 896]
@@ -38,7 +42,7 @@ class DecoderHead(nn.Module):
         self.dropout = nn.Dropout(0.1)
         self.classifier = nn.Conv2d(embedding_dim, output_dim, kernel_size=1)
 
-    def forward(self, features):
+    def forward(self, features: list[torch.Tensor]) -> torch.Tensor:
         c1, c2, c3, c4 = features
 
         n, _, h, w = c4.shape
@@ -70,7 +74,7 @@ class RefinerBlock(nn.Module):
     Residual Block with Dilation and GroupNorm (Safe for Batch Size 2).
     """
 
-    def __init__(self, channels, dilation=1):
+    def __init__(self, channels: int, dilation: int = 1) -> None:
         super().__init__()
         self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, padding=dilation, dilation=dilation)
         self.gn1 = nn.GroupNorm(8, channels)
@@ -78,7 +82,7 @@ class RefinerBlock(nn.Module):
         self.conv2 = nn.Conv2d(channels, channels, kernel_size=3, padding=dilation, dilation=dilation)
         self.gn2 = nn.GroupNorm(8, channels)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         residual = x
         out = self.conv1(x)
         out = self.gn1(out)
@@ -97,7 +101,7 @@ class CNNRefinerModule(nn.Module):
     Structure: Stem -> Res(d1) -> Res(d2) -> Res(d4) -> Res(d8) -> Projection.
     """
 
-    def __init__(self, in_channels=7, hidden_channels=64, out_channels=4):
+    def __init__(self, in_channels: int = 7, hidden_channels: int = 64, out_channels: int = 4) -> None:
         super().__init__()
 
         # Stem
@@ -120,7 +124,7 @@ class CNNRefinerModule(nn.Module):
         nn.init.normal_(self.final.weight, mean=0.0, std=1e-3)
         nn.init.constant_(self.final.bias, 0)
 
-    def forward(self, img, coarse_pred):
+    def forward(self, img: torch.Tensor, coarse_pred: torch.Tensor) -> torch.Tensor:
         # img: [B, 3, H, W]
         # coarse_pred: [B, 4, H, W]
         x = torch.cat([img, coarse_pred], dim=1)
@@ -138,8 +142,12 @@ class CNNRefinerModule(nn.Module):
 
 class GreenFormer(nn.Module):
     def __init__(
-        self, encoder_name="hiera_base_plus_224.mae_in1k_ft_in1k", in_channels=4, img_size=512, use_refiner=True
-    ):
+        self,
+        encoder_name: str = "hiera_base_plus_224.mae_in1k_ft_in1k",
+        in_channels: int = 4,
+        img_size: int = 512,
+        use_refiner: bool = True,
+    ) -> None:
         super().__init__()
 
         # --- Encoder ---
@@ -185,7 +193,7 @@ class GreenFormer(nn.Module):
             self.refiner = None
             print("Refiner Module DISABLED (Backbone Only Mode).")
 
-    def _patch_input_layer(self, in_channels):
+    def _patch_input_layer(self, in_channels: int) -> None:
         """
         Modifies the first convolution layer to accept `in_channels`.
         Copies existing RGB weights and initializes extras to zero.
@@ -229,7 +237,7 @@ class GreenFormer(nn.Module):
 
         print(f"Patched input layer: 3 channels -> {in_channels} channels (Extra initialized to 0)")
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         # x: [B, 4, H, W]
         input_size = x.shape[2:]
 

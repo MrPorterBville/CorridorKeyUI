@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import math
 import os
 
@@ -11,7 +13,9 @@ from .core.model_transformer import GreenFormer
 
 
 class CorridorKeyEngine:
-    def __init__(self, checkpoint_path, device="cuda", img_size=2048, use_refiner=True):
+    def __init__(
+        self, checkpoint_path: str, device: str = "cuda", img_size: int = 2048, use_refiner: bool = True
+    ) -> None:
         self.device = torch.device(device)
         self.img_size = img_size
         self.checkpoint_path = checkpoint_path
@@ -22,7 +26,7 @@ class CorridorKeyEngine:
 
         self.model = self._load_model()
 
-    def _load_model(self):
+    def _load_model(self) -> GreenFormer:
         print(f"Loading CorridorKey from {self.checkpoint_path}...")
         # Initialize Model (Hiera Backbone)
         model = GreenFormer(
@@ -82,15 +86,15 @@ class CorridorKeyEngine:
     @torch.no_grad()
     def process_frame(
         self,
-        image,
-        mask_linear,
-        refiner_scale=1.0,
-        input_is_linear=False,
-        fg_is_straight=True,
-        despill_strength=1.0,
-        auto_despeckle=True,
-        despeckle_size=400,
-    ):
+        image: np.ndarray,
+        mask_linear: np.ndarray,
+        refiner_scale: float = 1.0,
+        input_is_linear: bool = False,
+        fg_is_straight: bool = True,
+        despill_strength: float = 1.0,
+        auto_despeckle: bool = True,
+        despeckle_size: int = 400,
+    ) -> dict[str, np.ndarray]:
         """
         Process a single frame.
         Args:
