@@ -6,6 +6,7 @@ import queue
 import threading
 import tkinter as tk
 from dataclasses import dataclass
+from collections import Counter
 from tkinter import filedialog, messagebox, ttk
 
 from backend import ClipEntry, ClipState, CorridorKeyService, InferenceParams, OutputConfig
@@ -88,6 +89,7 @@ class CorridorKeyUI:
         self.device = "not initialized"
 
         self._clips: list[ClipView] = []
+        self._filtered_indices: list[int] = []
         self._events: queue.Queue[tuple[str, object]] = queue.Queue()
         self._worker: threading.Thread | None = None
         self._busy = False
@@ -95,6 +97,9 @@ class CorridorKeyUI:
         self.clips_dir_var = tk.StringVar(value=self._default_scan_dir())
         self.status_var = tk.StringVar(value="Ready. Import a video, or choose a folder and click Scan.")
         self.progress_var = tk.StringVar(value="Idle")
+        self.filter_var = tk.StringVar(value="All")
+        self.search_var = tk.StringVar(value="")
+        self.selection_summary_var = tk.StringVar(value="No clips selected")
 
         self.input_linear_var = tk.BooleanVar(value=False)
         self.despill_var = tk.DoubleVar(value=1.0)
@@ -129,6 +134,12 @@ class CorridorKeyUI:
         return projects_root()
 
     def _build_ui(self) -> None:
+        style = ttk.Style()
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
         self.root.columnconfigure(0, weight=3)
         self.root.columnconfigure(1, weight=2)
         self.root.rowconfigure(1, weight=1)
@@ -146,30 +157,49 @@ class CorridorKeyUI:
 
         left = ttk.Frame(self.root, padding=(10, 0, 10, 10))
         left.grid(row=1, column=0, sticky="nsew")
-        left.rowconfigure(1, weight=1)
+        left.rowconfigure(2, weight=1)
         left.columnconfigure(0, weight=1)
 
         ttk.Label(left, text="Clips").grid(row=0, column=0, sticky="w")
+        filters = ttk.Frame(left)
+        filters.grid(row=1, column=0, sticky="ew", pady=(4, 4))
+        filters.columnconfigure(3, weight=1)
+        ttk.Label(filters, text="State").grid(row=0, column=0, sticky="w")
+        state_combo = ttk.Combobox(
+            filters,
+            textvariable=self.filter_var,
+            values=["All", "RAW", "MASKED", "READY", "COMPLETE", "ERROR", "EXTRACTING"],
+            width=12,
+            state="readonly",
+        )
+        state_combo.grid(row=0, column=1, padx=(6, 12), sticky="w")
+        state_combo.bind("<<ComboboxSelected>>", lambda _e: self._refresh_clip_list())
+        ttk.Label(filters, text="Search").grid(row=0, column=2, sticky="w")
+        search = ttk.Entry(filters, textvariable=self.search_var)
+        search.grid(row=0, column=3, sticky="ew", padx=(6, 0))
+        search.bind("<KeyRelease>", lambda _e: self._refresh_clip_list())
+
         self.clip_list = tk.Listbox(left, selectmode=tk.EXTENDED)
-        self.clip_list.grid(row=1, column=0, sticky="nsew")
+        self.clip_list.grid(row=2, column=0, sticky="nsew")
+        self.clip_list.bind("<<ListboxSelect>>", lambda _e: self._on_selection_changed())
 
         clip_scroll = ttk.Scrollbar(left, orient="vertical", command=self.clip_list.yview)
-        clip_scroll.grid(row=1, column=1, sticky="ns")
+        clip_scroll.grid(row=2, column=1, sticky="ns")
         self.clip_list.configure(yscrollcommand=clip_scroll.set)
 
         button_row = ttk.Frame(left)
-        button_row.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        button_row.grid(row=3, column=0, sticky="ew", pady=(8, 0))
 
-        run_gvm_btn = ttk.Button(button_row, text="Run GVM", command=self.run_gvm)
-        run_gvm_btn.grid(row=0, column=0, padx=(0, 4))
+        self.run_gvm_btn = ttk.Button(button_row, text="Run GVM", command=self.run_gvm)
+        self.run_gvm_btn.grid(row=0, column=0, padx=(0, 4))
         self._help_button(button_row, row=0, column=1, help_key="run_gvm")
 
-        run_vm_btn = ttk.Button(button_row, text="Run VideoMaMa", command=self.run_videomama)
-        run_vm_btn.grid(row=0, column=2, padx=(8, 4))
+        self.run_vm_btn = ttk.Button(button_row, text="Run VideoMaMa", command=self.run_videomama)
+        self.run_vm_btn.grid(row=0, column=2, padx=(8, 4))
         self._help_button(button_row, row=0, column=3, help_key="run_videomama")
 
-        run_inf_btn = ttk.Button(button_row, text="Run Inference", command=self.run_inference)
-        run_inf_btn.grid(row=0, column=4, padx=(8, 4))
+        self.run_inf_btn = ttk.Button(button_row, text="Run Inference", command=self.run_inference)
+        self.run_inf_btn.grid(row=0, column=4, padx=(8, 4))
         self._help_button(button_row, row=0, column=5, help_key="run_inference")
 
         unload_btn = ttk.Button(button_row, text="Unload Models", command=self.unload_models)
@@ -239,8 +269,15 @@ class CorridorKeyUI:
         self._output_row(outputs, 2, "Comp", self.comp_enabled_var, self.comp_format_var)
         self._output_row(outputs, 3, "Processed", self.proc_enabled_var, self.proc_format_var)
 
+        details = ttk.LabelFrame(right, text="Selection Details")
+        details.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        details.columnconfigure(0, weight=1)
+        ttk.Label(details, textvariable=self.selection_summary_var, wraplength=460, justify="left").grid(
+            row=0, column=0, sticky="ew", padx=6, pady=6
+        )
+
         log_frame = ttk.LabelFrame(right, text="Log")
-        log_frame.grid(row=3, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+        log_frame.grid(row=5, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
         log_frame.rowconfigure(0, weight=1)
         log_frame.columnconfigure(0, weight=1)
 
@@ -505,7 +542,59 @@ class CorridorKeyUI:
             messagebox.showwarning("Some imports failed", details)
 
     def _selected_clips(self) -> list[ClipEntry]:
-        return [self._clips[i].clip for i in self.clip_list.curselection() if 0 <= i < len(self._clips)]
+        selected: list[ClipEntry] = []
+        for i in self.clip_list.curselection():
+            if 0 <= i < len(self._filtered_indices):
+                selected.append(self._clips[self._filtered_indices[i]].clip)
+        return selected
+
+    def _refresh_clip_list(self) -> None:
+        selected_state = self.filter_var.get().strip().upper()
+        query = self.search_var.get().strip().lower()
+        self._filtered_indices = []
+        self.clip_list.delete(0, "end")
+        for idx, cv in enumerate(self._clips):
+            state_ok = selected_state in {"", "ALL"} or cv.clip.state.value == selected_state
+            query_ok = (not query) or (query in cv.label.lower())
+            if state_ok and query_ok:
+                self._filtered_indices.append(idx)
+                self.clip_list.insert("end", cv.label)
+        self._on_selection_changed()
+
+    def _on_selection_changed(self) -> None:
+        selected = self._selected_clips()
+        if not selected:
+            self.selection_summary_var.set(
+                "No clips selected. Select clips and use state-appropriate actions:\n"
+                "RAW ➜ Run GVM, MASKED ➜ Run VideoMaMa, READY/COMPLETE ➜ Run Inference."
+            )
+            self.run_gvm_btn.configure(state="disabled")
+            self.run_vm_btn.configure(state="disabled")
+            self.run_inf_btn.configure(state="disabled")
+            return
+
+        counts = Counter(c.state.value for c in selected)
+        lines = [f"Selected {len(selected)} clip(s): " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))]
+        if counts.get("RAW"):
+            lines.append("• RAW clips can generate alpha hints with Run GVM.")
+        if counts.get("MASKED"):
+            lines.append("• MASKED clips can generate refined alpha hints with Run VideoMaMa.")
+        if counts.get("READY") or counts.get("COMPLETE"):
+            lines.append("• READY/COMPLETE clips can run CorridorKey inference outputs.")
+        blocked = [s for s in ["EXTRACTING", "ERROR"] if counts.get(s)]
+        if blocked:
+            lines.append("• EXTRACTING/ERROR clips are not directly runnable until they transition.")
+        self.selection_summary_var.set("\n".join(lines))
+
+        self.run_gvm_btn.configure(state="normal" if all(c.state == ClipState.RAW for c in selected) else "disabled")
+        self.run_vm_btn.configure(
+            state="normal" if all(c.state == ClipState.MASKED for c in selected) else "disabled"
+        )
+        self.run_inf_btn.configure(
+            state="normal"
+            if all(c.state in {ClipState.READY, ClipState.COMPLETE} for c in selected)
+            else "disabled"
+        )
 
     def _set_busy(self, value: bool) -> None:
         self._busy = value
@@ -548,15 +637,16 @@ class CorridorKeyUI:
             return
 
         self._clips = []
-        self.clip_list.delete(0, "end")
         for clip in clips:
             rel = os.path.relpath(clip.root_path, path)
             frames = clip.input_asset.frame_count if clip.input_asset else 0
             label = f"{clip.name} [{clip.state.value}] ({frames}f) - {rel}"
             self._clips.append(ClipView(clip=clip, label=label))
-            self.clip_list.insert("end", label)
+        self._refresh_clip_list()
 
-        self.status_var.set(f"Device: {self.device} | Clips: {len(clips)}")
+        counts = Counter(c.state.value for c in clips)
+        summary = ", ".join(f"{k}:{v}" for k, v in sorted(counts.items())) or "none"
+        self.status_var.set(f"Device: {self.device} | Clips: {len(clips)} ({summary})")
         self.progress_var.set("Idle")
         self.progress["value"] = 0
 

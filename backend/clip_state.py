@@ -337,8 +337,12 @@ class ClipEntry:
           COMPLETE  — all input frames have matching outputs (manifest-aware)
           READY     — AlphaHint exists (inference-ready)
           MASKED    — VideoMaMa mask hint exists
-          EXTRACTING — video source exists but no frame sequence yet
-          RAW       — frame sequence exists, no alpha/mask/output
+          RAW       — input exists (video or frames), no alpha/mask/output
+
+        Note:
+          The desktop UI/backend process video inputs directly via OpenCV/torch
+          and does not require a pre-extraction stage before GVM or inference.
+          Therefore, source-video clips resolve to RAW rather than EXTRACTING.
         """
         # Check COMPLETE first: outputs exist and cover all input frames
         if self.alpha_asset is not None and self.input_asset is not None:
@@ -362,10 +366,9 @@ class ClipEntry:
 
         if self.mask_asset is not None:
             self.state = ClipState.MASKED
-        elif self.input_asset is not None and self.input_asset.asset_type == "video":
-            # Video input needs extraction to image sequence
-            self.state = ClipState.EXTRACTING
         else:
+            # Video and sequence inputs are both immediately runnable in the
+            # desktop workflow, so both map to RAW when no hints exist yet.
             self.state = ClipState.RAW
 
 
@@ -472,13 +475,13 @@ def scan_clips_dir(
                     logger.debug(str(e))
 
         elif allow_standalone_videos and os.path.isfile(item_path) and _is_video_file(item_path):
-            # Standalone video file → treat as a clip needing extraction
+            # Standalone video file -> treat as a directly runnable RAW clip
             stem = os.path.splitext(item)[0]
             if stem in seen_names:
                 continue  # folder clip already exists with this name
             clip = ClipEntry(name=stem, root_path=clips_dir)
             clip.input_asset = ClipAsset(item_path, "video")
-            clip.state = ClipState.EXTRACTING
+            clip.state = ClipState.RAW
             entries.append(clip)
             seen_names.add(stem)
 
