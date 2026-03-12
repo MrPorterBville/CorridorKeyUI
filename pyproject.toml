@@ -46,6 +46,7 @@ dev = [
 
 [project.scripts]
 corridorkey = "corridorkey_cli:main"
+corridorkey-ui = "corridorkey_ui:main"
 
 [build-system]
 requires = ["hatchling"]

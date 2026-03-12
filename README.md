@@ -115,6 +115,19 @@ For the easiest experience, use the provided launcher scripts. These scripts lau
     *   `/Processed`: An RGBA image containing the Linear Foreground premultiplied against the Linear Alpha (EXR). This pass exists so you can immediately drop the footage into Premiere/Resolve for a quick preview without dealing with complex premultiplication routing. However, if you want more control over your image, working with the raw FG and Matte outputs will give you that.
     *   `/Comp`: A simple preview of the key composited over a checkerboard (PNG).
 
+### 4. Usage: Desktop UI
+
+A Tkinter desktop UI is included for clip scanning and batch processing.
+
+```bash
+uv run corridorkey-ui
+```
+
+From the UI you can:
+- Scan a clips directory (`ClipsForInference` or `Projects`).
+- Select one or more clips and run `GVM`, `VideoMaMa`, or `Inference`.
+- Adjust inference parameters and output formats before running.
+
 ## But What About Training and Datasets?
 
 If enough people find this project interesting I'll get the training program and datasets uploaded so we can all really go to town making the absolute best keyer fine tunes! Just hit me with some messages on the Corridor Creates discord or here. If enough people lock in, I'll get this stuff packaged up. Hardware requirements are beefy and the gigabytes are plentiful so I don't want to commit the time unless there's demand.
